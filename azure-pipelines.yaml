@@ -1,7 +1,6 @@
 # ============================================================
 # azure-pipelines.yaml — Main CI/CD Pipeline
 # Banking Payment Processing Platform
-# Triggers on: develop and main branches
 # ============================================================
 
 trigger:
@@ -19,32 +18,26 @@ pr:
       - develop
       - main
 
-# ── Variables from Library (Variable Groups) ──────────────
 variables:
-  - group: banking-dev-variables       # ACR_NAME, IMAGE_NAME, NAMESPACE
+  - group: banking-dev-variables
   - name: imageTag
     value: $(Build.BuildId)
   - name: serviceName
     value: 'payment-service'
 
-# ============================================================
-# STAGE 1: BUILD + CODE QUALITY + DOCKER PUSH
-# ============================================================
 stages:
   - stage: Build
     displayName: '🔨 Build & Code Quality'
     jobs:
       - job: BuildJob
-        displayName: 'Maven Build + SonarQube + Docker Push'
+        displayName: 'Maven Build + Docker Push'
         pool:
-          name: 'Default'              # Self-hosted agent (private network access)
+          name: 'Default'
         steps:
 
-          # Step 1 — Checkout code
           - checkout: self
             displayName: 'Checkout Source Code'
 
-          # Step 2 — Maven Build + Unit Tests
           - task: Maven@3
             displayName: '☕ Maven Build & Unit Tests'
             inputs:
@@ -56,29 +49,17 @@ stages:
               javaHomeOption: 'JDKVersion'
               jdkVersionOption: '1.17'
 
-          # Step 3 — SonarQube Prepare
-          - task: SonarQubePrepare@5
-            displayName: '🔍 Prepare SonarQube Analysis'
-            inputs:
-              SonarQube: 'sonar-service-connection'
-              scannerMode: 'Auto'
-              projectKey: 'banking-payment-service'
-              projectName: 'Banking Payment Service'
-              extraProperties: |
-                sonar.coverage.jacoco.xmlReportPaths=$(Agent.BuildDirectory)/coverage.xml
-                sonar.java.coveragePlugin=jacoco
+          # SonarQube - TODO: Enable after SonarQube setup
+          # - task: SonarQubePrepare@5
+          #   inputs:
+          #     SonarQube: 'sonar-service-connection'
+          #     scannerMode: 'Auto'
+          #     projectKey: 'banking-payment-service'
+          # - task: SonarQubeAnalyze@5
+          # - task: SonarQubePublish@5
+          #   inputs:
+          #     pollingTimeoutSec: '300'
 
-          # Step 4 — SonarQube Analysis
-          - task: SonarQubeAnalyze@5
-            displayName: '🔍 Run SonarQube Analysis'
-
-          # Step 5 — SonarQube Quality Gate Check
-          - task: SonarQubePublish@5
-            displayName: '✅ Check Quality Gate (80% coverage required)'
-            inputs:
-              pollingTimeoutSec: '300'
-
-          # Step 6 — Docker Build & Push to ACR
           - task: Docker@2
             displayName: '🐳 Build & Push Docker Image to ACR'
             inputs:
@@ -90,16 +71,12 @@ stages:
                 $(imageTag)
                 latest
 
-          # Step 7 — Publish pipeline artifact (deployment yaml)
           - task: PublishPipelineArtifact@1
             displayName: '📦 Publish K8s Manifests'
             inputs:
               targetPath: 'k8s'
               artifact: 'k8s-manifests'
 
-# ============================================================
-# STAGE 2: DEPLOY TO DEV
-# ============================================================
   - stage: DeployDev
     displayName: '🚀 Deploy to DEV'
     dependsOn: Build
@@ -109,7 +86,7 @@ stages:
         displayName: 'Deploy to DEV AKS'
         pool:
           name: 'Default'
-        environment: 'DEV'             # No approval needed
+        environment: 'DEV'
         strategy:
           runOnce:
             deploy:
@@ -121,9 +98,6 @@ stages:
                     serviceName: $(serviceName)
                     replicas: '1'
 
-# ============================================================
-# STAGE 3: DEPLOY TO QA
-# ============================================================
   - stage: DeployQA
     displayName: '🧪 Deploy to QA'
     dependsOn: DeployDev
@@ -133,7 +107,7 @@ stages:
         displayName: 'Deploy to QA AKS'
         pool:
           name: 'Default'
-        environment: 'QA'              # QA Lead approval configured in Environment
+        environment: 'QA'
         strategy:
           runOnce:
             deploy:
@@ -145,9 +119,6 @@ stages:
                     serviceName: $(serviceName)
                     replicas: '2'
 
-# ============================================================
-# STAGE 4: DEPLOY TO PRODUCTION
-# ============================================================
   - stage: DeployProd
     displayName: '🏦 Deploy to PRODUCTION'
     dependsOn: DeployQA
@@ -158,7 +129,7 @@ stages:
         displayName: 'Deploy to PROD AKS'
         pool:
           name: 'Default'
-        environment: 'PRODUCTION'      # Tech Lead manual approval gate
+        environment: 'PRODUCTION'
         strategy:
           runOnce:
             deploy:
