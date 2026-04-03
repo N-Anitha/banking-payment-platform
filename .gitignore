@@ -1,0 +1,33 @@
+# Java
+target/
+*.class
+*.jar
+*.war
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# Docker
+.dockerignore
+
+# Secrets — NEVER commit these!
+*.env
+application-prod.properties
+application-secrets.properties
+secrets/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

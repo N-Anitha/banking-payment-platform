@@ -1,0 +1,105 @@
+# ============================================================
+# k8s/deployment.yaml
+# Kubernetes Deployment for payment-service
+# Rolling Update Strategy — Zero Downtime
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: banking-prod
+  labels:
+    app: payment-service
+    version: "1.0"
+    team: payments
+spec:
+  replicas: 3                              # 3 pods for high availability in PROD
+  selector:
+    matchLabels:
+      app: payment-service
+
+  # ── Rolling Update Strategy (Zero Downtime) ──────────────
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1                          # One extra pod during update
+      maxUnavailable: 0                    # Never kill pod before new one is ready
+
+  template:
+    metadata:
+      labels:
+        app: payment-service
+      annotations:
+        prometheus.io/scrape: "true"       # Prometheus metrics scraping
+        prometheus.io/port: "8081"
+
+    spec:
+      containers:
+        - name: payment-service
+          image: mybank.azurecr.io/payment-service:#{imageTag}#   # Token replaced by pipeline
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+
+          # ── Environment Variables ───────────────────────
+          env:
+            - name: SPRING_PROFILE
+              value: "prod"
+            - name: DB_PASSWORD              # From Azure Key Vault via K8s Secret
+              valueFrom:
+                secretKeyRef:
+                  name: banking-secrets
+                  key: db-password
+            - name: ACR_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: banking-config
+                  key: acr-name
+
+          # ── Resource Limits ──────────────────────────────
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # ── Liveness Probe (Is app running?) ─────────────
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # ── Readiness Probe (Is app ready for traffic?) ──
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+---
+# ============================================================
+# Kubernetes Service — Exposes payment-service inside cluster
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: banking-prod
+  labels:
+    app: payment-service
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8081
+  type: ClusterIP                          # Internal only (API Gateway routes externally)

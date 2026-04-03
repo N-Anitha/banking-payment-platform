@@ -1,0 +1,35 @@
+# ============================================================
+# templates/docker-build-template.yaml
+# Reusable Docker build template for all microservices
+# ============================================================
+
+parameters:
+  - name: serviceName
+    type: string
+  - name: imageTag
+    type: string
+    default: 'latest'
+  - name: acrConnection
+    type: string
+    default: 'acr-service-connection'
+
+steps:
+  - task: Docker@2
+    displayName: '🐳 Build Docker Image - ${{ parameters.serviceName }}'
+    inputs:
+      command: build
+      repository: ${{ parameters.serviceName }}
+      containerRegistry: ${{ parameters.acrConnection }}
+      dockerfile: '${{ parameters.serviceName }}/Dockerfile'
+      tags: ${{ parameters.imageTag }}
+      arguments: '--no-cache'
+
+  - task: Docker@2
+    displayName: '📤 Push Image to ACR - ${{ parameters.serviceName }}'
+    inputs:
+      command: push
+      repository: ${{ parameters.serviceName }}
+      containerRegistry: ${{ parameters.acrConnection }}
+      tags: |
+        ${{ parameters.imageTag }}
+        latest

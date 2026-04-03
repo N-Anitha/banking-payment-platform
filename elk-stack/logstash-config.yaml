@@ -1,0 +1,82 @@
+# ============================================================
+# elk-stack/logstash-config.yaml
+# Logstash — Processes, filters and routes logs to Elasticsearch
+# ============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: banking-prod
+data:
+  logstash.conf: |
+    # ── INPUT: Receive from Filebeat ─────────────────────────
+    input {
+      beats {
+        port => 5044
+      }
+    }
+
+    # ── FILTER: Process & Enrich Logs ────────────────────────
+    filter {
+
+      # Parse log message structure
+      grok {
+        match => {
+          "message" => "%{TIMESTAMP_ISO8601:log_timestamp} \[%{DATA:thread}\] %{LOGLEVEL:log_level} %{DATA:logger} - %{GREEDYDATA:log_message}"
+        }
+      }
+
+      # Extract transaction ID if present (for payment tracing)
+      if [log_message] =~ /transactionId=/ {
+        grok {
+          match => {
+            "log_message" => "transactionId=%{DATA:transaction_id}"
+          }
+        }
+      }
+
+      # Tag payment failures for alerting
+      if [log_level] == "ERROR" {
+        mutate {
+          add_tag => ["error", "alert_needed"]
+          add_field => { "alert_type" => "payment_failure" }
+        }
+      }
+
+      # Tag by service name
+      if [kubernetes][labels][app] {
+        mutate {
+          add_field => { "service_name" => "%{[kubernetes][labels][app]}" }
+        }
+      }
+
+      # Add environment tag
+      mutate {
+        add_field => { "environment" => "production" }
+        add_field => { "project" => "banking-payment-platform" }
+      }
+
+      # Remove unnecessary fields
+      mutate {
+        remove_field => ["agent", "ecs", "input"]
+      }
+    }
+
+    # ── OUTPUT: Send to Elasticsearch ────────────────────────
+    output {
+      elasticsearch {
+        hosts => ["elasticsearch-service:9200"]
+        index => "banking-logs-%{+YYYY.MM.dd}"    # Daily index rotation
+
+        # Route error logs to separate index for faster querying
+        if "error" in [tags] {
+          index => "banking-errors-%{+YYYY.MM.dd}"
+        }
+      }
+
+      # Also output to stdout for debugging
+      stdout {
+        codec => rubydebug
+      }
+    }

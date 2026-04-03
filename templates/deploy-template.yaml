@@ -1,0 +1,55 @@
+# ============================================================
+# templates/deploy-template.yaml
+# Reusable deployment template — used by all 3 environments
+# DRY Principle: Write once, reuse for DEV, QA, PROD
+# ============================================================
+
+parameters:
+  - name: namespace
+    type: string
+  - name: imageTag
+    type: string
+  - name: serviceName
+    type: string
+  - name: replicas
+    type: string
+    default: '1'
+
+steps:
+  # Step 1 — Download K8s manifests published in Build stage
+  - task: DownloadPipelineArtifact@2
+    displayName: '📥 Download K8s Manifests'
+    inputs:
+      artifact: 'k8s-manifests'
+      path: $(Pipeline.Workspace)/k8s
+
+  # Step 2 — Replace image tag in deployment yaml dynamically
+  - task: replacetokens@5
+    displayName: '🔄 Replace Image Tag in Manifest'
+    inputs:
+      targetFiles: '$(Pipeline.Workspace)/k8s/**/*.yaml'
+      encoding: 'auto'
+      tokenPattern: 'default'
+
+  # Step 3 — Deploy to AKS using KubernetesManifest task
+  - task: KubernetesManifest@0
+    displayName: '☸️ Deploy to AKS - ${{ parameters.namespace }}'
+    inputs:
+      action: deploy
+      kubernetesServiceConnection: 'aks-service-connection'
+      namespace: ${{ parameters.namespace }}
+      manifests: |
+        $(Pipeline.Workspace)/k8s/deployment.yaml
+        $(Pipeline.Workspace)/k8s/service.yaml
+      containers: |
+        $(ACR_NAME)/${{ parameters.serviceName }}:${{ parameters.imageTag }}
+
+  # Step 4 — Verify deployment rollout
+  - task: Kubernetes@1
+    displayName: '✅ Verify Deployment Rollout'
+    inputs:
+      connectionType: 'Kubernetes Service Connection'
+      kubernetesServiceEndpoint: 'aks-service-connection'
+      namespace: ${{ parameters.namespace }}
+      command: 'rollout'
+      arguments: 'status deployment/${{ parameters.serviceName }} --timeout=120s'
